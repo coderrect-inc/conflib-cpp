@@ -1,0 +1,8 @@
+{
+  "report": {
+    "theme": "blue",
+    "size": 20
+  },
+  "param1": 456,
+  "param3": "world"
+}

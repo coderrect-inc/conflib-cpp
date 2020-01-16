@@ -5,7 +5,7 @@ project(conflib_cpp)
 set(CMAKE_CXX_STANDARD 17)
 
 
-include_directories(include third-party/jsoncons/include)
+include_directories(include third-party/jsoncons)
 
 file(GLOB SOURCES "examples/*.cpp")
 

@@ -26,7 +26,7 @@ static const std::string VERSION_ = "0.0.1";
 
 
 static const std::string DEFAULT_CONFIGURATION_NAME_ = "coderrect.json";
-static const std::string DEFAULT_CUSTOM_CONFIGURATION_PATH_ = "~/.coderrect.json";
+static const std::string HOME_CONFIGURATION_PATH_ = "~/.coderrect.json";
 static const std::string ENV_INSTALLATION_DIRECTORY_ = "CODERRECT_HOME";
 
 
@@ -50,6 +50,8 @@ private:
 
 
 static jsoncons::json default_conf_;
+static jsoncons::json home_conf_;
+static jsoncons::json project_conf_;
 static jsoncons::json custom_conf_;
 static jsoncons::json cmdline_conf_;
 
@@ -58,7 +60,7 @@ static jsoncons::json cmdline_conf_;
  * @param s is a key-value string like "-abc=def".
  * @return the value
  */
-static std::string GetConfValue_(const char* s) {
+static inline std::string GetConfValue_(const char* s) {
     std::string str(s);
     size_t pos = str.find_first_of('=');
     if (pos == std::string::npos) {
@@ -69,27 +71,27 @@ static std::string GetConfValue_(const char* s) {
 }
 
 
-static bool FileExists_(const std::string& path) {
+static inline bool FileExists_(const std::string& path) {
     struct stat st;
     return stat(path.c_str(), &st) == 0;
 }
 
 
-static bool IsInteger_(const std::string& s) {
+static inline bool IsInteger_(const std::string& s) {
     char *p = nullptr;
     strtol(s.c_str(), &p, 10);
     return (*p == 0);
 }
 
 
-static bool IsDouble_(const std::string& s) {
+static inline bool IsDouble_(const std::string& s) {
     char *p = nullptr;
     strtof(s.c_str(), &p);
     return (*p == 0);
 }
 
 
-static void Split_(std::vector<std::string>& stages, std::string s) {
+static inline void Split_(std::vector<std::string>& stages, std::string s) {
     size_t pos_of_first_char = 0;
     size_t pos = s.find_first_of('.');
     while (pos != std::string::npos) {
@@ -101,7 +103,7 @@ static void Split_(std::vector<std::string>& stages, std::string s) {
     stages.push_back(s.substr(pos_of_first_char));
 }
 
-static std::string BuildPath_(const std::vector<std::string>& stages, int last_stage) {
+static inline std::string BuildPath_(const std::vector<std::string>& stages, int last_stage) {
     std::string s;
     for (int i = 0; i <= last_stage; i++) {
         if (!s.empty()) {
@@ -116,7 +118,7 @@ static std::string BuildPath_(const std::vector<std::string>& stages, int last_s
 }
 
 
-static void AssignValue_(jsoncons::json& j, const std::string& key, const std::string& value) {
+static inline void AssignValue_(jsoncons::json& j, const std::string& key, const std::string& value) {
     if (value == "true") {
         j[key] = true;
     }
@@ -135,7 +137,7 @@ static void AssignValue_(jsoncons::json& j, const std::string& key, const std::s
 }
 
 
-static void ReplaceValue_(jsoncons::json& j, const std::string& jpath, const std::string& value) {
+static inline void ReplaceValue_(jsoncons::json& j, const std::string& jpath, const std::string& value) {
     if (value == "true") {
         jsoncons::jsonpath::json_replace(j, jpath, true);
     }
@@ -162,8 +164,9 @@ static void ReplaceValue_(jsoncons::json& j, const std::string& jpath, const std
  *     "def": "ghi"
  *   }
  * }
+ *
  */
-static void InsertConfiguration_(jsoncons::json& j, const std::string& s) {
+static inline void InsertConfiguration_(jsoncons::json& j, const std::string& s) {
     size_t pos = s.find_first_of('=');
     std::string key = s.substr(1, pos-1);
     std::string value = s.substr(pos+1);
@@ -207,6 +210,21 @@ static void InsertConfiguration_(jsoncons::json& j, const std::string& s) {
 }
 
 
+static inline void LoadConfFile_(const std::string& conf_path, jsoncons::json& j) {
+    if (!conf_path.empty() && FileExists_(conf_path)) {
+        std::ifstream ins(conf_path);
+        j = jsoncons::json::parse(ins);
+    }
+    else {
+        j = jsoncons::json::parse("{}");
+    }
+}
+
+/**
+ * Assumes 'cwd' is the project directory.
+ *
+ * cmdline < custom < project < home < default
+ */
 void Initialize(int argc, char* argv[]) {
     std::string conf_path;
 
@@ -219,29 +237,23 @@ void Initialize(int argc, char* argv[]) {
         // we assume the base dir of the application is the installation dir
         // todo
     }
-    if (!conf_path.empty()) {
-        std::ifstream ins(conf_path);
-        default_conf_ = jsoncons::json::parse(ins);
-    }
-    else {
-        default_conf_ = jsoncons::json::parse("{}");
-    }
+    LoadConfFile_(conf_path, default_conf_);
+
+    // load the home configuration file
+    LoadConfFile_(HOME_CONFIGURATION_PATH_, home_conf_);
+
+    // load the project configuration file
+    LoadConfFile_("./.coderrect.json", project_conf_);
 
     // load the custom configuration file
-    conf_path = DEFAULT_CUSTOM_CONFIGURATION_PATH_;
+    conf_path = "";
     for ( int i = 1; i < argc; i++) {
         if (strstr(argv[i], "-conf=") == argv[i]) {
             conf_path = GetConfValue_(argv[i]);
             break;
         }
     }
-    if (FileExists_(conf_path)) {
-        std::ifstream ins(conf_path);
-        custom_conf_ = jsoncons::json::parse(ins);
-    }
-    else {
-        custom_conf_ = jsoncons::json::parse("{}");
-    }
+    LoadConfFile_(conf_path, custom_conf_);
 
     // convert all cmdline parameters into a json
     for (int i = 1; i < argc; i++) {
@@ -272,6 +284,16 @@ T Get(const std::string& key, T defaultValue) {
     }
 
     r = jsoncons::jsonpath::json_query(custom_conf_, jpath);
+    if (!r.empty()) {
+        return r[0].as<T>();
+    }
+
+    r = jsoncons::jsonpath::json_query(project_conf_, jpath);
+    if (!r.empty()) {
+        return r[0].as<T>();
+    }
+
+    r = jsoncons::jsonpath::json_query(home_conf_, jpath);
     if (!r.empty()) {
         return r[0].as<T>();
     }

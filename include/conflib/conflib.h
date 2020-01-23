@@ -220,12 +220,50 @@ static inline void LoadConfFile_(const std::string& conf_path, jsoncons::json& j
     }
 }
 
+
+static void ParseCmdlineArgs_(int argc, char* argv[], const std::map<std::string, std::string>& shortArgsMap) {
+    // convert all cmdline parameters into a json
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0]!= '-' || strstr(argv[i], "-conf=") == argv[i] || argv[i][0] == '=')
+            continue;
+
+        std::string arg(argv[i]);
+
+        // the arg is single-char such as "-o". we need
+        // to check if it's a short alias of a formal
+        // argument such as "-report.outputDir" by looking
+        // up "shortArgsMap"
+        if (arg.size() == 2) {
+            std::string tmp = arg.substr(1);
+            if (shortArgsMap.find(tmp) != shortArgsMap.end()) {
+                auto longArgs = shortArgsMap.find(tmp)->second;
+                if (i == argc-1 || argv[i+1][0] == '-') {
+                    arg = "-" + longArgs + "=true";
+                }
+                else {
+                    arg = "-" + longArgs + "=" + std::string(argv[i+1]);
+                    i++;
+                }
+            }
+        }
+
+        size_t pos = arg.find_first_of('=');
+        if (pos == std::string::npos) {
+            // sth like -racedetector.enableFunction
+            arg += "=true";
+        }
+
+        InsertConfiguration_(cmdline_conf_, arg);
+    }
+}
+
+
 /**
  * Assumes 'cwd' is the project directory.
  *
  * cmdline < custom < project < home < default
  */
-void Initialize(int argc, char* argv[]) {
+void Initialize(int argc, char* argv[], const std::map<std::string, std::string>& shortArgsMap) {
     std::string conf_path;
 
     // load the default configuration file
@@ -255,21 +293,9 @@ void Initialize(int argc, char* argv[]) {
     }
     LoadConfFile_(conf_path, custom_conf_);
 
-    // convert all cmdline parameters into a json
-    for (int i = 1; i < argc; i++) {
-        if (argv[i][0]!= '-' || strstr(argv[i], "-conf=") == argv[i] || argv[i][0] == '=')
-            continue;
+    ParseCmdlineArgs_(argc, argv, shortArgsMap);
 
-        std::string arg(argv[i]);
-        size_t pos = arg.find_first_of('=');
-        if (pos == std::string::npos) {
-            // sth like -racedetector.enableFunction
-            arg += "=true";
-        }
-
-        InsertConfiguration_(cmdline_conf_, arg);
-    }
-    std::cout << jsoncons::pretty_print(cmdline_conf_) << std::endl;
+//    std::cout << jsoncons::pretty_print(cmdline_conf_) << std::endl;
 }
 
 

@@ -221,10 +221,23 @@ static inline void LoadConfFile_(const std::string& conf_path, jsoncons::json& j
 }
 
 
-static void ParseCmdlineArgs_(int argc, char* argv[], const std::map<std::string, std::string>& shortArgsMap) {
+static std::vector<std::string> ParseCmdlineArgs_(int argc,
+                                                  char* argv[],
+                                                  const std::map<std::string, std::string>& shortArgsMap) {
+    std::vector<std::string> remaining;
+
     // convert all cmdline parameters into a json
     for (int i = 1; i < argc; i++) {
-        if (argv[i][0]!= '-' || strstr(argv[i], "-conf=") == argv[i] || argv[i][0] == '=')
+        if (argv[i][0] != '-') {
+            // we already consumed all arguments. return the remaining
+            // to the caller so that it deals with them by itself
+            for (int j = i; j < argc; j++) {
+                remaining.emplace_back(argv[j]);
+            }
+            break;
+        }
+
+        if (strstr(argv[i], "-conf=") == argv[i] || argv[i][0] == '=')
             continue;
 
         std::string arg(argv[i]);
@@ -255,6 +268,8 @@ static void ParseCmdlineArgs_(int argc, char* argv[], const std::map<std::string
 
         InsertConfiguration_(cmdline_conf_, arg);
     }
+
+    return remaining;
 }
 
 
@@ -262,8 +277,15 @@ static void ParseCmdlineArgs_(int argc, char* argv[], const std::map<std::string
  * Assumes 'cwd' is the project directory.
  *
  * cmdline < custom < project < home < default
+ *
+ * Any trailing arguments that can't be consumed by conflib will be
+ * returned as a vector of string. For example,
+ *
+ * command -report.color=blue -report.enableCompress abc.c a.out
+ *
+ * "abc.c" and "a.out" can't be consumed and will be returned.
  */
-void Initialize(int argc, char* argv[], const std::map<std::string, std::string>& shortArgsMap) {
+std::vector<std::string> Initialize(int argc, char* argv[], const std::map<std::string, std::string>& shortArgsMap) {
     std::string conf_path;
 
     // load the default configuration file
@@ -293,9 +315,7 @@ void Initialize(int argc, char* argv[], const std::map<std::string, std::string>
     }
     LoadConfFile_(conf_path, custom_conf_);
 
-    ParseCmdlineArgs_(argc, argv, shortArgsMap);
-
-//    std::cout << jsoncons::pretty_print(cmdline_conf_) << std::endl;
+    return ParseCmdlineArgs_(argc, argv, shortArgsMap);
 }
 
 

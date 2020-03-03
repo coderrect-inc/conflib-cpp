@@ -227,7 +227,8 @@ static std::vector<std::string> ParseCmdlineArgs_(int argc,
     std::vector<std::string> remaining;
 
     // convert all cmdline parameters into a json
-    for (int i = 1; i < argc; i++) {
+    for (int i = 0; i < argc; i++) {
+        char* tmp = argv[1];
         if (argv[i][0] != '-') {
             // we already consumed all arguments. return the remaining
             // to the caller so that it deals with them by itself
@@ -273,6 +274,7 @@ static std::vector<std::string> ParseCmdlineArgs_(int argc,
 }
 
 
+
 /**
  * Assumes 'cwd' is the project directory.
  *
@@ -285,7 +287,10 @@ static std::vector<std::string> ParseCmdlineArgs_(int argc,
  *
  * "abc.c" and "a.out" can't be consumed and will be returned.
  */
-std::vector<std::string> Initialize(int argc, char* argv[], const std::map<std::string, std::string>& shortArgsMap) {
+std::vector<std::string> Initialize(const std::map<std::string, std::string>& short_args_map,
+                                    bool use_env_cmdline_opts,
+                                    int argc = 0,
+                                    char *argv[] = nullptr) {
     std::string conf_path;
 
     // load the default configuration file
@@ -315,7 +320,39 @@ std::vector<std::string> Initialize(int argc, char* argv[], const std::map<std::
     }
     LoadConfFile_(conf_path, custom_conf_);
 
-    return ParseCmdlineArgs_(argc, argv, shortArgsMap);
+    // prepare cmdline opts for ParseCmdlineArgs_
+    char** effective_argv = nullptr;
+    int effective_argc = 0;
+
+    if (use_env_cmdline_opts) {
+        char* tmp = std::getenv("CODERRECT_CMDLINE_OPTS");
+        if (tmp != nullptr) {
+            jsoncons::json j = jsoncons::json::parse(tmp);
+            const jsoncons::json &jopts = j["Opts"];
+            effective_argc = jopts.size();
+            if (effective_argc > 0) {
+                effective_argv = new char*[effective_argc];
+                int i = 0;
+                for (const auto& item : jopts.array_range()) {
+                    size_t len = item.as<std::string>().length();
+                    effective_argv[i] = new char[len + 1];
+                    memcpy(effective_argv[i], item.as<std::string>().c_str(), len);
+                    effective_argv[i][len] = 0;
+                    i++;
+                }
+            }
+        }
+    }
+    else {
+        effective_argc = argc - 1;
+        if (effective_argc > 0) {
+            effective_argv = new char*[effective_argc];
+            for (int i = 0; i < effective_argc; i++) {
+                effective_argv[i] = argv[i+1];
+            }
+        }
+    }
+    return ParseCmdlineArgs_(effective_argc, effective_argv, short_args_map);
 }
 
 

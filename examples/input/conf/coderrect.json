@@ -3,5 +3,6 @@
     "theme": "black"
   },
   "param1": 234,
-  "param2": "hello"
+  "param2": "hello",
+  "loggers": ["stderr", "stdout"]
 }

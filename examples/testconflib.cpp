@@ -36,14 +36,22 @@ static void InitWithEnvCmdlineOpt() {
 
 
 int main(int argc, char* argv[]) {
-    InitWithEnvCmdlineOpt();
-    return 0;
+//    InitWithEnvCmdlineOpt();
+//    return 0;
 
     std::map<std::string, std::string> alias;
     alias["o"] = "report.outputDir";
     alias["e"] = "report.expand";
 
     auto remaining = conflib::Initialize(alias, false, argc, argv);
+    std::vector<std::string> loggers;
+    conflib::Get("loggers", loggers);
+    std::cout << "loggers: ";
+    for (auto itr = loggers.begin(); itr != loggers.end(); ++itr) {
+        std::cout << *itr << ", ";
+    }
+    std::cout << std::endl;
+
     std::cout << conflib::Get<std::string>("report.theme", std::string("bad")) << std::endl;
     std::cout << conflib::Get<long>("param1", 999) << std::endl;
     std::cout << conflib::Get<std::string>("report.outputDir", "home") << std::endl;

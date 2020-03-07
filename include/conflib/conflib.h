@@ -356,6 +356,42 @@ std::vector<std::string> Initialize(const std::map<std::string, std::string>& sh
 }
 
 
+static inline std::vector<std::string> ParseArray_(jsoncons::json& j) {
+    std::vector<std::string> r;
+    for (const auto& item : j.array_range())
+    {
+        r.push_back(item.as<std::string>());
+    }
+
+    return r;
+}
+
+
+void Get(const std::string& key, std::vector<std::string>& rs) {
+    std::string jpath = "$." + key;
+
+    jsoncons::json r = jsoncons::jsonpath::json_query(cmdline_conf_, jpath);
+    if (r.empty()) {
+        r = jsoncons::jsonpath::json_query(custom_conf_, jpath);
+        if (r.empty()) {
+            r = jsoncons::jsonpath::json_query(project_conf_, jpath);
+            if (r.empty()) {
+                r = jsoncons::jsonpath::json_query(home_conf_, jpath);
+                if (r.empty()) {
+                    r = jsoncons::jsonpath::json_query(default_conf_, jpath);
+                }
+            }
+        }
+    }
+
+    if (!r.empty()) {
+        for (const auto& item : r[0].array_range())
+        {
+            rs.push_back(item.as<std::string>());
+        }
+    }
+}
+
 
 template <typename T>
 T Get(const std::string& key, T defaultValue) {

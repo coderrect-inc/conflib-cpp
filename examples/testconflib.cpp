@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include <unistd.h>
 #include "conflib/conflib.h"
 
 
@@ -34,7 +35,7 @@ static void InitWithEnvCmdlineOpt() {
     }
 }
 
-
+/*
 int main(int argc, char* argv[]) {
 //    InitWithEnvCmdlineOpt();
 //    return 0;
@@ -60,4 +61,16 @@ int main(int argc, char* argv[]) {
     for (std::string a : remaining) {
         std::cout << "remaining " << a << std::endl;
     }
+}
+*/
+
+
+int main(int argc, char* argv[]) {
+    char cwd[PATH_MAX];
+    getcwd(cwd, sizeof(cwd));
+    std::cout << cwd << '\n';
+
+    std::map<std::string, std::string> alias{};
+    conflib::Initialize(alias, false, argc, argv);
+    std::cout << conflib::Get<std::string>("threadAPIProfiles.apr.a", "notfound") << '\n';
 }

@@ -10,12 +10,13 @@
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpath/json_query.hpp>
+#include <libgen.h>
 
 
 namespace conflib {
 
 
-static const std::string VERSION_ = "0.0.1";
+    static const std::string VERSION_ = "0.0.1";
 
 
 #ifdef _WIN32
@@ -25,135 +26,135 @@ static const std::string VERSION_ = "0.0.1";
 #endif
 
 
-static const std::string DEFAULT_CONFIGURATION_NAME_ = "coderrect.json";
-static const std::string HOME_CONFIGURATION_PATH_ = "~/.coderrect.json";
-static const std::string ENV_INSTALLATION_DIRECTORY_ = "CODERRECT_HOME";
+    static const std::string DEFAULT_CONFIGURATION_NAME_ = "coderrect.json";
+    static const std::string HOME_CONFIGURATION_PATH_ = "~/.coderrect.json";
+    static const std::string ENV_INSTALLATION_DIRECTORY_ = "CODERRECT_HOME";
 
 
-struct ConfLibException : public std::exception {
-public:
-    static const int UNKNOWN = 1;
-    static const int INVALID_PARAMETER = 2;
-    static const int INVALID_DATA_TYPE = 3;
+    struct ConfLibException : public std::exception {
+    public:
+        static const int UNKNOWN = 1;
+        static const int INVALID_PARAMETER = 2;
+        static const int INVALID_DATA_TYPE = 3;
 
-public:
-    ConfLibException(int code) : code_(code) {}
-    ~ConfLibException() = default;
+    public:
+        ConfLibException(int code) : code_(code) {}
 
-    int code() {
-        return code_;
-    }
+        ~ConfLibException() = default;
 
-private:
-    int code_;
-};
+        int code() {
+            return code_;
+        }
+
+    private:
+        int code_;
+    };
 
 
-static jsoncons::json default_conf_;
-static jsoncons::json home_conf_;
-static jsoncons::json project_conf_;
-static jsoncons::json custom_conf_;
-static jsoncons::json cmdline_conf_;
+    static jsoncons::json default_conf_;
+    static std::vector<jsoncons::json> default_include_;
+
+    static jsoncons::json home_conf_;
+    static std::vector<jsoncons::json> home_include_;
+
+    static jsoncons::json project_conf_;
+    static std::vector<jsoncons::json> project_include_;
+
+    static jsoncons::json custom_conf_;
+    static std::vector<jsoncons::json> custom_include_;
+
+    static jsoncons::json cmdline_conf_;
 
 
 /**
  * @param s is a key-value string like "-abc=def".
  * @return the value
  */
-static inline std::string GetConfValue_(const char* s) {
-    std::string str(s);
-    size_t pos = str.find_first_of('=');
-    if (pos == std::string::npos) {
-        throw ConfLibException(ConfLibException::INVALID_PARAMETER);
-    }
-
-    return str.substr(pos+1);
-}
-
-
-static inline bool FileExists_(const std::string& path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0;
-}
-
-
-static inline bool IsInteger_(const std::string& s) {
-    char *p = nullptr;
-    strtol(s.c_str(), &p, 10);
-    return (*p == 0);
-}
-
-
-static inline bool IsDouble_(const std::string& s) {
-    char *p = nullptr;
-    strtof(s.c_str(), &p);
-    return (*p == 0);
-}
-
-
-static inline void Split_(std::vector<std::string>& stages, std::string s) {
-    size_t pos_of_first_char = 0;
-    size_t pos = s.find_first_of('.');
-    while (pos != std::string::npos) {
-        stages.push_back(s.substr(pos_of_first_char, pos-pos_of_first_char));
-        pos_of_first_char = pos + 1;
-        pos = s.find_first_of('.', pos_of_first_char);
-    }
-
-    stages.push_back(s.substr(pos_of_first_char));
-}
-
-static inline std::string BuildPath_(const std::vector<std::string>& stages, int last_stage) {
-    std::string s;
-    for (int i = 0; i <= last_stage; i++) {
-        if (!s.empty()) {
-            s += '.' + stages[i];
+    static inline std::string GetConfValue_(const char *s) {
+        std::string str(s);
+        size_t pos = str.find_first_of('=');
+        if (pos == std::string::npos) {
+            throw ConfLibException(ConfLibException::INVALID_PARAMETER);
         }
-        else {
-            s += stages[i];
+
+        return str.substr(pos + 1);
+    }
+
+
+    static inline bool FileExists_(const std::string &path) {
+        struct stat st;
+        return stat(path.c_str(), &st) == 0;
+    }
+
+
+    static inline bool IsInteger_(const std::string &s) {
+        char *p = nullptr;
+        strtol(s.c_str(), &p, 10);
+        return (*p == 0);
+    }
+
+
+    static inline bool IsDouble_(const std::string &s) {
+        char *p = nullptr;
+        strtof(s.c_str(), &p);
+        return (*p == 0);
+    }
+
+
+    static inline void Split_(std::vector<std::string> &stages, std::string s) {
+        size_t pos_of_first_char = 0;
+        size_t pos = s.find_first_of('.');
+        while (pos != std::string::npos) {
+            stages.push_back(s.substr(pos_of_first_char, pos - pos_of_first_char));
+            pos_of_first_char = pos + 1;
+            pos = s.find_first_of('.', pos_of_first_char);
+        }
+
+        stages.push_back(s.substr(pos_of_first_char));
+    }
+
+    static inline std::string BuildPath_(const std::vector<std::string> &stages, int last_stage) {
+        std::string s;
+        for (int i = 0; i <= last_stage; i++) {
+            if (!s.empty()) {
+                s += '.' + stages[i];
+            } else {
+                s += stages[i];
+            }
+        }
+
+        return "$." + s;
+    }
+
+
+    static inline void AssignValue_(jsoncons::json &j, const std::string &key, const std::string &value) {
+        if (value == "true") {
+            j[key] = true;
+        } else if (value == "false") {
+            j[key] = false;
+        } else if (IsDouble_(value)) {
+            j[key] = atof(value.c_str());
+        } else if (IsInteger_(value)) {
+            j[key] = atol(value.c_str());
+        } else {
+            j[key] = value;
         }
     }
 
-    return "$." + s;
-}
 
-
-static inline void AssignValue_(jsoncons::json& j, const std::string& key, const std::string& value) {
-    if (value == "true") {
-        j[key] = true;
+    static inline void ReplaceValue_(jsoncons::json &j, const std::string &jpath, const std::string &value) {
+        if (value == "true") {
+            jsoncons::jsonpath::json_replace(j, jpath, true);
+        } else if (value == "false") {
+            jsoncons::jsonpath::json_replace(j, jpath, false);
+        } else if (IsDouble_(value)) {
+            jsoncons::jsonpath::json_replace(j, jpath, atof(value.c_str()));
+        } else if (IsInteger_(value)) {
+            jsoncons::jsonpath::json_replace(j, jpath, atol(value.c_str()));
+        } else {
+            jsoncons::jsonpath::json_replace(j, jpath, value);
+        }
     }
-    else if (value == "false") {
-        j[key] = false;
-    }
-    else if (IsDouble_(value)) {
-        j[key] = atof(value.c_str());
-    }
-    else if (IsInteger_(value)) {
-        j[key] = atol(value.c_str());
-    }
-    else {
-        j[key] = value;
-    }
-}
-
-
-static inline void ReplaceValue_(jsoncons::json& j, const std::string& jpath, const std::string& value) {
-    if (value == "true") {
-        jsoncons::jsonpath::json_replace(j, jpath, true);
-    }
-    else if (value == "false") {
-        jsoncons::jsonpath::json_replace(j, jpath, false);
-    }
-    else if (IsDouble_(value)) {
-        jsoncons::jsonpath::json_replace(j, jpath, atof(value.c_str()));
-    }
-    else if (IsInteger_(value)) {
-        jsoncons::jsonpath::json_replace(j, jpath, atol(value.c_str()));
-    }
-    else {
-        jsoncons::jsonpath::json_replace(j, jpath, value);
-    }
-}
 
 /**
  * 's' has the format like '-abc.def=ghi'. This method needs to
@@ -166,113 +167,139 @@ static inline void ReplaceValue_(jsoncons::json& j, const std::string& jpath, co
  * }
  *
  */
-static inline void InsertConfiguration_(jsoncons::json& j, const std::string& s) {
-    size_t pos = s.find_first_of('=');
-    std::string key = s.substr(1, pos-1);
-    std::string value = s.substr(pos+1);
+    static inline void InsertConfiguration_(jsoncons::json &j, const std::string &s) {
+        size_t pos = s.find_first_of('=');
+        std::string key = s.substr(1, pos - 1);
+        std::string value = s.substr(pos + 1);
 
-    std::vector<std::string> stages;
-    Split_(stages, key);
+        std::vector<std::string> stages;
+        Split_(stages, key);
 
-    jsoncons::json jtmp;
-    for (int i = stages.size()-1; i>=0; i--) {
-        std::string jpath = BuildPath_(stages, i);
-        auto r = jsoncons::jsonpath::json_query(j, jpath);
+        jsoncons::json jtmp;
+        for (int i = stages.size() - 1; i >= 0; i--) {
+            std::string jpath = BuildPath_(stages, i);
+            auto r = jsoncons::jsonpath::json_query(j, jpath);
+            if (!r.empty()) {
+                if (jtmp.empty()) {
+                    jsoncons::jsonpath::json_replace(j, jpath, value);
+                } else {
+                    if (r[0].is_object()) {
+                        jtmp.merge(std::move(r[0]));
+                    }
+                    jsoncons::jsonpath::json_replace(j, jpath, jtmp);
+                }
+
+                break;
+            } else {
+                if (jtmp.empty()) {
+                    AssignValue_(jtmp, stages[i], value);
+                } else {
+                    if (i == 0) {
+                        j[stages[i]] = jtmp;
+                    } else {
+                        jsoncons::json jtmp2;
+                        jtmp2[stages[i]] = jtmp;
+                        jtmp = jtmp2;
+                    }
+                }
+            }
+        }
+    }
+
+
+    static inline void LoadConfFile_(const std::string &conf_path,
+                                     jsoncons::json &j) {
+        if (!conf_path.empty() && FileExists_(conf_path)) {
+            std::ifstream ins(conf_path);
+            j = jsoncons::json::parse(ins);
+        } else {
+            j = jsoncons::json::parse("{}");
+        }
+    }
+
+
+    static inline void LoadConfFile_(const std::string &conf_path,
+                                     jsoncons::json &j,
+                                     std::vector<jsoncons::json> &includeConfs) {
+        if (!conf_path.empty() && FileExists_(conf_path)) {
+            std::ifstream ins(conf_path);
+            j = jsoncons::json::parse(ins);
+        } else {
+            j = jsoncons::json::parse("{}");
+        }
+
+        // resolve "include"
+        std::string jpath = "$.include";
+
+        jsoncons::json r = jsoncons::jsonpath::json_query(j, jpath);
         if (!r.empty()) {
-            if (jtmp.empty()) {
-                jsoncons::jsonpath::json_replace(j, jpath, value);
-            }
-            else {
-                if (r[0].is_object()) {
-                    jtmp.merge(std::move(r[0]));
-                }
-                jsoncons::jsonpath::json_replace(j, jpath, jtmp);
-            }
+            // get the path prefix
+            char fullpath[PATH_MAX];
+            realpath(conf_path.c_str(), fullpath);
+            char *dirp = dirname(fullpath);
 
-            break;
-        }
-        else {
-            if (jtmp.empty()) {
-                AssignValue_(jtmp, stages[i], value);
-            }
-            else {
-                if (i == 0) {
-                    j[stages[i]] = jtmp;
-                }
-                else {
-                    jsoncons::json jtmp2;
-                    jtmp2[stages[i]] = jtmp;
-                    jtmp = jtmp2;
-                }
+            auto includes = r[0].as<std::vector<std::string>>();
+            for (auto const &str : includes) {
+                auto includeFilePath = std::string(dirp) + "/" + str;
+
+                jsoncons::json jinclude;
+                LoadConfFile_(includeFilePath, jinclude);
+                includeConfs.push_back(jinclude);
             }
         }
     }
-}
 
 
-static inline void LoadConfFile_(const std::string& conf_path, jsoncons::json& j) {
-    if (!conf_path.empty() && FileExists_(conf_path)) {
-        std::ifstream ins(conf_path);
-        j = jsoncons::json::parse(ins);
-    }
-    else {
-        j = jsoncons::json::parse("{}");
-    }
-}
+    static std::vector<std::string> ParseCmdlineArgs_(int argc,
+                                                      char *argv[],
+                                                      const std::map<std::string, std::string> &shortArgsMap) {
+        std::vector<std::string> remaining;
 
-
-static std::vector<std::string> ParseCmdlineArgs_(int argc,
-                                                  char* argv[],
-                                                  const std::map<std::string, std::string>& shortArgsMap) {
-    std::vector<std::string> remaining;
-
-    // convert all cmdline parameters into a json
-    for (int i = 0; i < argc; i++) {
-        char* tmp = argv[1];
-        if (argv[i][0] != '-') {
-            // we already consumed all arguments. return the remaining
-            // to the caller so that it deals with them by itself
-            for (int j = i; j < argc; j++) {
-                remaining.emplace_back(argv[j]);
-            }
-            break;
-        }
-
-        if (strstr(argv[i], "-conf=") == argv[i] || argv[i][0] == '=')
-            continue;
-
-        std::string arg(argv[i]);
-
-        // the arg is single-char such as "-o". we need
-        // to check if it's a short alias of a formal
-        // argument such as "-report.outputDir" by looking
-        // up "shortArgsMap"
-        if (arg.size() == 2) {
-            std::string tmp = arg.substr(1);
-            if (shortArgsMap.find(tmp) != shortArgsMap.end()) {
-                auto longArgs = shortArgsMap.find(tmp)->second;
-                if (i == argc-1 || argv[i+1][0] == '-') {
-                    arg = "-" + longArgs + "=true";
+        // convert all cmdline parameters into a json
+        for (int i = 0; i < argc; i++) {
+            char *tmp = argv[1];
+            if (argv[i][0] != '-') {
+                // we already consumed all arguments. return the remaining
+                // to the caller so that it deals with them by itself
+                for (int j = i; j < argc; j++) {
+                    remaining.emplace_back(argv[j]);
                 }
-                else {
-                    arg = "-" + longArgs + "=" + std::string(argv[i+1]);
-                    i++;
+                break;
+            }
+
+            if (strstr(argv[i], "-conf=") == argv[i] || argv[i][0] == '=')
+                continue;
+
+            std::string arg(argv[i]);
+
+            // the arg is single-char such as "-o". we need
+            // to check if it's a short alias of a formal
+            // argument such as "-report.outputDir" by looking
+            // up "shortArgsMap"
+            if (arg.size() == 2) {
+                std::string tmp = arg.substr(1);
+                if (shortArgsMap.find(tmp) != shortArgsMap.end()) {
+                    auto longArgs = shortArgsMap.find(tmp)->second;
+                    if (i == argc - 1 || argv[i + 1][0] == '-') {
+                        arg = "-" + longArgs + "=true";
+                    } else {
+                        arg = "-" + longArgs + "=" + std::string(argv[i + 1]);
+                        i++;
+                    }
                 }
             }
+
+            size_t pos = arg.find_first_of('=');
+            if (pos == std::string::npos) {
+                // sth like -racedetector.enableFunction
+                arg += "=true";
+            }
+
+            InsertConfiguration_(cmdline_conf_, arg);
         }
 
-        size_t pos = arg.find_first_of('=');
-        if (pos == std::string::npos) {
-            // sth like -racedetector.enableFunction
-            arg += "=true";
-        }
-
-        InsertConfiguration_(cmdline_conf_, arg);
+        return remaining;
     }
-
-    return remaining;
-}
-
 
 
 /**
@@ -287,143 +314,163 @@ static std::vector<std::string> ParseCmdlineArgs_(int argc,
  *
  * "abc.c" and "a.out" can't be consumed and will be returned.
  */
-std::vector<std::string> Initialize(const std::map<std::string, std::string>& short_args_map,
-                                    bool use_env_cmdline_opts,
-                                    int argc = 0,
-                                    char *argv[] = nullptr) {
-    std::string conf_path;
+    std::vector<std::string> Initialize(const std::map<std::string, std::string> &short_args_map,
+                                        bool use_env_cmdline_opts,
+                                        int argc = 0,
+                                        char *argv[] = nullptr) {
+        std::string conf_path;
 
-    // load the default configuration file
-    char* home_dir = std::getenv(ENV_INSTALLATION_DIRECTORY_.c_str());
-    if (home_dir != nullptr) {
-        conf_path = std::string(home_dir) + OS_PATHSEP_ + "conf" + OS_PATHSEP_ + DEFAULT_CONFIGURATION_NAME_;
-    }
-    else {
-        // we assume the base dir of the application is the installation dir
-        // todo
-    }
-    LoadConfFile_(conf_path, default_conf_);
-
-    // load the home configuration file
-    LoadConfFile_(HOME_CONFIGURATION_PATH_, home_conf_);
-
-    // load the project configuration file
-    LoadConfFile_("./.coderrect.json", project_conf_);
-
-    // load the custom configuration file
-    conf_path = "";
-    for ( int i = 1; i < argc; i++) {
-        if (strstr(argv[i], "-conf=") == argv[i]) {
-            conf_path = GetConfValue_(argv[i]);
-            break;
+        // load the default configuration file
+        char *home_dir = std::getenv(ENV_INSTALLATION_DIRECTORY_.c_str());
+        if (home_dir != nullptr) {
+            conf_path = std::string(home_dir) + OS_PATHSEP_ + "conf" + OS_PATHSEP_ + DEFAULT_CONFIGURATION_NAME_;
+        } else {
+            // we assume the base dir of the application is the installation dir
+            // todo
         }
-    }
-    LoadConfFile_(conf_path, custom_conf_);
+        LoadConfFile_(conf_path, default_conf_, default_include_);
 
-    // prepare cmdline opts for ParseCmdlineArgs_
-    char** effective_argv = nullptr;
-    int effective_argc = 0;
+        // load the home configuration file
+        LoadConfFile_(HOME_CONFIGURATION_PATH_, home_conf_, home_include_);
 
-    if (use_env_cmdline_opts) {
-        char* tmp = std::getenv("CODERRECT_CMDLINE_OPTS");
-        if (tmp != nullptr) {
-            jsoncons::json j = jsoncons::json::parse(tmp);
-            const jsoncons::json &jopts = j["Opts"];
-            effective_argc = jopts.size();
+        // load the project configuration file
+        LoadConfFile_("./.coderrect.json", project_conf_, project_include_);
+
+        // load the custom configuration file
+        conf_path = "";
+        for (int i = 1; i < argc; i++) {
+            if (strstr(argv[i], "-conf=") == argv[i]) {
+                conf_path = GetConfValue_(argv[i]);
+                break;
+            }
+        }
+        LoadConfFile_(conf_path, custom_conf_, custom_include_);
+
+        // prepare cmdline opts for ParseCmdlineArgs_
+        char **effective_argv = nullptr;
+        int effective_argc = 0;
+
+        if (use_env_cmdline_opts) {
+            char *tmp = std::getenv("CODERRECT_CMDLINE_OPTS");
+            if (tmp != nullptr) {
+                jsoncons::json j = jsoncons::json::parse(tmp);
+                const jsoncons::json &jopts = j["Opts"];
+                effective_argc = jopts.size();
+                if (effective_argc > 0) {
+                    effective_argv = new char *[effective_argc];
+                    int i = 0;
+                    for (const auto &item : jopts.array_range()) {
+                        size_t len = item.as<std::string>().length();
+                        effective_argv[i] = new char[len + 1];
+                        memcpy(effective_argv[i], item.as<std::string>().c_str(), len);
+                        effective_argv[i][len] = 0;
+                        i++;
+                    }
+                }
+            }
+        } else {
+            effective_argc = argc - 1;
             if (effective_argc > 0) {
-                effective_argv = new char*[effective_argc];
-                int i = 0;
-                for (const auto& item : jopts.array_range()) {
-                    size_t len = item.as<std::string>().length();
-                    effective_argv[i] = new char[len + 1];
-                    memcpy(effective_argv[i], item.as<std::string>().c_str(), len);
-                    effective_argv[i][len] = 0;
-                    i++;
+                effective_argv = new char *[effective_argc];
+                for (int i = 0; i < effective_argc; i++) {
+                    effective_argv[i] = argv[i + 1];
                 }
             }
         }
+        return ParseCmdlineArgs_(effective_argc, effective_argv, short_args_map);
     }
-    else {
-        effective_argc = argc - 1;
-        if (effective_argc > 0) {
-            effective_argv = new char*[effective_argc];
-            for (int i = 0; i < effective_argc; i++) {
-                effective_argv[i] = argv[i+1];
-            }
+
+
+    static inline std::vector<std::string> ParseArray_(jsoncons::json &j) {
+        std::vector<std::string> r;
+        for (const auto &item : j.array_range()) {
+            r.push_back(item.as<std::string>());
         }
-    }
-    return ParseCmdlineArgs_(effective_argc, effective_argv, short_args_map);
-}
 
-
-static inline std::vector<std::string> ParseArray_(jsoncons::json& j) {
-    std::vector<std::string> r;
-    for (const auto& item : j.array_range())
-    {
-        r.push_back(item.as<std::string>());
+        return r;
     }
 
-    return r;
-}
 
+    void Get(const std::string &key, std::vector<std::string> &rs) {
+        std::string jpath = "$." + key;
 
-void Get(const std::string& key, std::vector<std::string>& rs) {
-    std::string jpath = "$." + key;
-
-    jsoncons::json r = jsoncons::jsonpath::json_query(cmdline_conf_, jpath);
-    if (r.empty()) {
-        r = jsoncons::jsonpath::json_query(custom_conf_, jpath);
+        jsoncons::json r = jsoncons::jsonpath::json_query(cmdline_conf_, jpath);
         if (r.empty()) {
-            r = jsoncons::jsonpath::json_query(project_conf_, jpath);
+            r = jsoncons::jsonpath::json_query(custom_conf_, jpath);
             if (r.empty()) {
-                r = jsoncons::jsonpath::json_query(home_conf_, jpath);
+                r = jsoncons::jsonpath::json_query(project_conf_, jpath);
                 if (r.empty()) {
-                    r = jsoncons::jsonpath::json_query(default_conf_, jpath);
+                    r = jsoncons::jsonpath::json_query(home_conf_, jpath);
+                    if (r.empty()) {
+                        r = jsoncons::jsonpath::json_query(default_conf_, jpath);
+                    }
                 }
+            }
+        }
+
+        if (!r.empty()) {
+            for (const auto &item : r[0].array_range()) {
+                rs.push_back(item.as<std::string>());
             }
         }
     }
 
-    if (!r.empty()) {
-        for (const auto& item : r[0].array_range())
-        {
-            rs.push_back(item.as<std::string>());
+
+    template<typename T>
+    T Get(const std::string &key, T defaultValue) {
+        std::string jpath = "$." + key;
+
+        jsoncons::json r = jsoncons::jsonpath::json_query(cmdline_conf_, jpath);
+        if (!r.empty()) {
+            return r[0].as<T>();
         }
+
+        r = jsoncons::jsonpath::json_query(custom_conf_, jpath);
+        if (!r.empty()) {
+            return r[0].as<T>();
+        }
+        for (auto const& incConf : custom_include_) {
+            r = jsoncons::jsonpath::json_query(incConf, jpath);
+            if (!r.empty()) {
+                return r[0].as<T>();
+            }
+        }
+
+        r = jsoncons::jsonpath::json_query(project_conf_, jpath);
+        if (!r.empty()) {
+            return r[0].as<T>();
+        }
+        for (auto const& incConf : project_include_) {
+            r = jsoncons::jsonpath::json_query(incConf, jpath);
+            if (!r.empty()) {
+                return r[0].as<T>();
+            }
+        }
+
+        r = jsoncons::jsonpath::json_query(home_conf_, jpath);
+        if (!r.empty()) {
+            return r[0].as<T>();
+        }
+        for (auto const& incConf : home_include_) {
+            r = jsoncons::jsonpath::json_query(incConf, jpath);
+            if (!r.empty()) {
+                return r[0].as<T>();
+            }
+        }
+
+        r = jsoncons::jsonpath::json_query(default_conf_, jpath);
+        if (!r.empty()) {
+            return r[0].as<T>();
+        }
+        for (auto const& incConf : default_include_) {
+            r = jsoncons::jsonpath::json_query(incConf, jpath);
+            if (!r.empty()) {
+                return r[0].as<T>();
+            }
+        }
+
+        return defaultValue;
     }
-}
-
-
-template <typename T>
-T Get(const std::string& key, T defaultValue) {
-    std::string jpath = "$." + key;
-
-    jsoncons::json r = jsoncons::jsonpath::json_query(cmdline_conf_, jpath);
-    if (!r.empty()) {
-        return r[0].as<T>();
-    }
-
-    r = jsoncons::jsonpath::json_query(custom_conf_, jpath);
-    if (!r.empty()) {
-        return r[0].as<T>();
-    }
-
-    r = jsoncons::jsonpath::json_query(project_conf_, jpath);
-    if (!r.empty()) {
-        return r[0].as<T>();
-    }
-
-    r = jsoncons::jsonpath::json_query(home_conf_, jpath);
-    if (!r.empty()) {
-        return r[0].as<T>();
-    }
-
-    r = jsoncons::jsonpath::json_query(default_conf_, jpath);
-    if (!r.empty()) {
-        return r[0].as<T>();
-    }
-
-    return defaultValue;
-}
 
 
 } // namespace conflib

@@ -4,5 +4,6 @@
   },
   "param1": 234,
   "param2": "hello",
-  "loggers": ["stderr", "stdout"]
+  "loggers": ["stderr", "stdout"],
+  "include": ["pthread.json", "apr.json"]
 }

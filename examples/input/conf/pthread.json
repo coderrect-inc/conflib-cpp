@@ -1,0 +1,7 @@
+{
+  "threadAPIProfiles": {
+    "pthread": {
+      "a": "b"
+    }
+  }
+}
